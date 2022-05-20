@@ -16,5 +16,8 @@
   "bugs": {
     "url": "https://github.com/OumeiSatoKenta/zenn-satoken/issues"
   },
-  "homepage": "https://github.com/OumeiSatoKenta/zenn-satoken#readme"
+  "homepage": "https://github.com/OumeiSatoKenta/zenn-satoken#readme",
+  "dependencies": {
+    "zenn-cli": "^0.1.110"
+  }
 }
