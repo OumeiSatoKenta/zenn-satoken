@@ -3,7 +3,7 @@ title: "Perl Test::Tutorialをやってみた。"
 emoji: "💭"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: []
-published: false
+published: true
 ---
 
 ## 始めた理由
@@ -36,6 +36,9 @@ use warnings;
 ## 参考にしたページ
 
 - [Test::Tutorial](https://perldoc.jp/docs/modules/Test-Simple-0.47/Tutorial.pod)
+
+## 今回作成したコード
+- [GitHubページ](git@github.com:OumeiSatoKenta/perl_sample.git)
 
 ## 詰まったところで解決したメモ
 
@@ -226,4 +229,12 @@ ok 12 # skip epoc to ICal not working on MacOS
 ok 13 # skip epoc to ICal not working on MacOS
 # Looks like you planned 14 tests but ran 13.
 # Looks like you failed 2 tests of 13 run.
+```
+
+### 「汚染モードでのテスト」のTaint mode（汚染モード）での実行でエラーが出る。
+- 下のようなメッセージが出る。
+- 現状、理由がわからない。
+```
+$ perl contami.pl
+"-T" is on the #! line, it must also be used on the command line at contami.pl line 1.
 ```
