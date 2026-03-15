@@ -83,6 +83,10 @@ mysql -h gateway03.us-west-2.prod.aws.tidbcloud.com -P 4000 \
   -u 'zyx123abc.root' -p --ssl-mode=REQUIRED
 ```
 
+:::message
+MySQL 9.x では `mysql_native_password` プラグインが削除されたため、接続時にエラーになることがあります。`brew install mysql-client@8.4` で8.x系クライアントを使うか、`mysqlsh` を使ってください。
+:::
+
 
 ## Python（pytidb）で接続する
 
@@ -161,6 +165,14 @@ for r in results:
 ```
 
 `table.search()` はコサイン距離によるベクトル検索を実行します。`_distance` が0に近いほど類似度が高いです。
+
+```text
+- TiDBは分散SQLデータベースです (distance: 0.4090)
+- 水平スケーリングが可能なHTAPデータベースです (distance: 0.8071)
+- MySQLと互換性のあるプロトコルを持っています (distance: 0.8201)
+- PingCAP社が開発しています (distance: 0.8969)
+- ベクトル検索にも対応しています (distance: 0.8970)
+```
 
 ## claimUrlで永続化する
 
