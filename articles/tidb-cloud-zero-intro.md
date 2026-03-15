@@ -1,5 +1,5 @@
 ---
-title: "TiDB Cloud Zero入門 — curlひとつで手に入るMySQL互換ベクトルDB"
+title: "TiDB Cloud Zero入門 — curlで作るDBにpytidbでベクトル検索"
 emoji: "🚀"
 type: "tech"
 topics: ["tidb", "mysql", "vectordb", "rag", "python"]
