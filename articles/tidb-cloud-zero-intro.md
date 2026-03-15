@@ -8,7 +8,7 @@ published: false
 
 ## この記事について
 
-- **AI記載率**: 約65% — Claude Codeで生成し、筆者が構成指示・編集・加筆
+- **AI記載率**: 約80% — Claude Codeで生成し、筆者が構成指示・編集・加筆
 - **動作確認**: 記事内のコマンド・設定はすべて筆者が実行確認済み
 
 ## はじめに
@@ -208,8 +208,8 @@ print(inspect.signature(TiDBClient.connect))
 この記事は「TiDB Cloud Zero × Claude Code で作る PDF RAG アプリ」シリーズの一部です。
 
 1. **TiDB Cloud Zero入門** ← 本記事
-2. [Claude CodeのTiDBスキルでAI駆動開発](claude-code-tidb-skills)
-3. [TiDB + Amazon BedrockでPDF RAGアプリを作る](tidb-bedrock-pdf-rag)
+2. Claude CodeのTiDBスキルでAI駆動開発（準備中）
+3. TiDB + Amazon BedrockでPDF RAGアプリを作る（準備中）
 
 ## 参考リンク
 
