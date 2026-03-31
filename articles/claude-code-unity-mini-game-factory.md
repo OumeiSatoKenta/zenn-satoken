@@ -14,8 +14,10 @@ published: false
 
 - 100本のゲームアイデアをGitHub Issuesに体系的に登録する方法
 - Claude Codeが自動でUnity C#スクリプトを生成するワークフロー
+- `/implement-game` スキルによるIssue取得→コード生成→PR→マージの完全自動化
+- `/loop` コマンドでPC放置のままゲームを連続量産する仕組み
 - カテゴリ別タブ付きTopMenuのミニゲーム集アーキテクチャ
-- Gemini CLIによるゲームアセット（スプライト画像）の自動生成
+- Gemini CLI / Pillowによるゲームアセット（スプライト画像）の自動生成
 - GitHub Projectsでスプレッドシート感覚の進捗管理
 
 ## 前提条件
@@ -256,7 +258,120 @@ if (mouse.leftButton.wasPressedThisFrame)
 }
 ```
 
-## Phase 5: ゲームアセット生成
+## Phase 5: `/implement-game` スキルで完全自動実装
+
+### スキルとは
+
+Claude Codeには「スキル」という仕組みがあり、`.claude/commands/` にMarkdownファイルを置くだけで、カスタムのスラッシュコマンドを定義できます。`/implement-game 002` のように呼び出すと、Markdownに記述された手順がClaude Codeに読み込まれ、全ステップを自動で実行します。
+
+### implement-game スキルの全体フロー
+
+```
+/implement-game [ゲームID]
+    ↓
+① GitHub Issue から仕様取得（gh issue list）
+    ↓
+② GameRegistry.json からゲーム基本情報を確認
+    ↓
+③ C# スクリプト群を自動生成
+   - GameManager.cs（ゲーム状態管理）
+   - コアメカニクスManager（入力一元管理）
+   - オブジェクト制御スクリプト
+   - UI.cs（スコア・クリアパネル）
+    ↓
+④ SceneSetup Editorスクリプト生成
+    ↓
+⑤ GameRegistry.json を implemented: true に更新
+    ↓
+⑥ Python + Pillow でスプライト画像を生成
+    ↓
+⑦ ブランチ作成 → commit → push → PR作成 → mainマージ
+    ↓
+⑧ GitHub Issue にコメント
+```
+
+### スキルに埋め込んだナレッジ
+
+実装を繰り返す中でハマったポイントをスキル自体にルールとして組み込みました。
+
+```markdown
+# スキル内のルール（抜粋）
+
+- 入力処理は必ずManagerに一元管理する（個別オブジェクトで処理しない）
+- 新Input System使用: Mouse.current.leftButton.wasPressedThisFrame
+- Input.mousePosition は使わない → Mouse.current.position.ReadValue()
+- Sprite は File.WriteAllBytes → AssetDatabase.ImportAsset で保存
+  （Sprite.Create() はプレハブに保持できない）
+- EventSystem は InputSystemUIInputModule を使用
+  （StandaloneInputModule は Unity 6 で動かない）
+```
+
+これにより、同じハマりポイントを二度踏まない仕組みになっています。Claude Codeは毎回このルールを読み込んだ上でコード生成するため、品質が安定します。
+
+### PRの自動作成・マージ
+
+スキルの最終ステップでは、`gh` コマンドでPR作成からマージまでを自動実行します。
+
+```bash
+# フィーチャーブランチ作成 & commit
+git checkout -b feature/20260331-game004-wordcrystal
+git add MiniGameCollection/Assets/Scripts/Game004_WordCrystal/
+git add MiniGameCollection/Assets/Editor/SceneSetup/Setup004_WordCrystal.cs
+git add MiniGameCollection/Assets/Resources/Sprites/Game004_WordCrystal/
+git add MiniGameCollection/Assets/Resources/GameRegistry.json
+git commit -m "feat(game004): implement WordCrystal game"
+
+# PR作成 & マージ
+gh pr create --title "feat(game004): implement WordCrystal game" \
+  --body "Closes #5" --base main
+gh pr merge --merge --auto
+```
+
+Issueの `Closes #5` により、PRマージ時にIssueも自動クローズされます。
+
+## Phase 6: `/loop` で量産を完全自動化
+
+### 1本ずつ手で実行する限界
+
+`/implement-game` で1本のゲーム実装は自動化できましたが、100本を1本ずつ `/implement-game 004`、`/implement-game 005`... と打つのは非効率です。
+
+### `/loop` コマンドによる連続実行
+
+Claude Code の `/loop` コマンドを使うと、指定した間隔でプロンプトを繰り返し実行できます。
+
+```
+/loop 5h 状態ファイル(~/.claude/projects/.../game_schedule_state.json)から
+next_id を読み、/implement-game [ID] を実行 → 完了後 next_id を +1 更新
+→ 次のゲームへ。next_id が 101 以上になったら全完了。
+レートリミットエラー時は next_id を保存して停止。
+```
+
+### 状態管理ファイル
+
+どこまで実装したかをJSONファイルで管理します。
+
+```json
+{
+  "next_id": 14,
+  "total": 100
+}
+```
+
+ループが再開するたびにこのファイルを読み、次のゲームIDから再開します。レートリミットに達しても、状態が保存されているので次回のループで続きから再開できます。
+
+### なぜ `/loop` なのか
+
+当初は Claude Code の `CronCreate` API（リモートエージェント）を使ったcronジョブ方式を検討しました。しかし以下の理由で `/loop` に移行しました:
+
+- cronジョブは7日で失効するため、自己更新の仕組みが必要だった
+- `/loop` ならローカルで動き、状態管理もシンプル
+- レートリミット時に自然に停止し、次回再開できる
+
+### 実行結果
+
+この仕組みにより、PCを放置しておくだけで数時間おきにゲームが1本ずつ実装・PR・マージされていきます。GitHub Projectsのテーブルビューを見ると、「未実装」だったゲームが徐々に「完了」に変わっていく様子を確認できます。
+
+## Phase 7: ゲームアセット生成
 
 ### Gemini CLI でスプライト画像を自動生成
 
@@ -282,84 +397,7 @@ def create_gem_block(filename, base, highlight, shadow, size=128):
 
 5色のブロック + 盤面背景を生成し、`Resources.Load<Sprite>()` でランタイム読み込みしています。
 
-## Phase 6: ゲーム003 GravitySwitch — 新パターンの実装
-
-BlockFlow（スワイプ操作）の次に実装したのが **GravitySwitch**（重力方向切り替えパズル）です。
-
-### ゲーム概要
-
-4方向ボタン（▲▼◀▶）で重力方向を切り替え、ボールを滑らせてゴール（黄金のダイヤ）に誘導するパズル。3レベル収録（2手/2手/3手解答）。
-
-### スクリプト構成
-
-```
-Scripts/Game003_GravitySwitch/
-├── GravitySwitchGameManager.cs  — ゲーム状態・クリア判定
-├── GravityManager.cs            — レベルデータ・タイル生成・ボール移動
-├── TileView.cs                  — タイルの種別データ保持
-├── GravityButtonHandler.cs      — ボタン→GravityManager.ApplyGravity(int)
-└── GravitySwitchUI.cs           — 手数表示・クリアパネル
-```
-
-### 設計のポイント: 入力を一元管理
-
-4方向ボタンの入力処理は `GravityButtonHandler` を経由してすべて `GravityManager` に委譲しています。各タイルやボールが入力を持たない設計です。
-
-```csharp
-// GravityButtonHandler.cs — ボタンに貼り付けるだけ
-[RequireComponent(typeof(Button))]
-public class GravityButtonHandler : MonoBehaviour
-{
-    [SerializeField] private GravityManager _gravityManager;
-    [SerializeField] private int _direction; // 0=Up, 1=Down, 2=Left, 3=Right
-
-    private void Start()
-    {
-        GetComponent<Button>().onClick.AddListener(
-            () => _gravityManager?.ApplyGravity(_direction));
-    }
-}
-```
-
-### レベルデータの埋め込み
-
-レベルは C# の多次元配列でハードコードしています（`0=空`, `1=壁`, `2=ゴール`）。
-
-```csharp
-private static readonly int[][,] _levels =
-{
-    // Level 1: 上→右で2手クリア
-    new int[,]
-    {
-        {1,1,1,1,1,1,1},
-        {1,0,0,0,0,2,1},  // ゴール at (1,5)
-        {1,0,0,1,0,0,1},
-        {1,0,0,0,0,0,1},  // ボール start at (3,1)
-        {1,0,1,0,0,0,1},
-        {1,0,0,0,0,0,1},
-        {1,1,1,1,1,1,1},
-    },
-    // Level 2, Level 3...
-};
-```
-
-タイルとボールはランタイムで動的生成（`GravityManager.InitLevel()`）し、スプライトは `Resources.Load<Sprite>()` で読み込みます。
-
-### Pillow でスプライト生成
-
-ゴールのダイヤ形・壁のレンガ模様・ボールを Python の Pillow で直接描画しました。
-
-```python
-# tile_goal.png — ゴールマーク（ダイヤ形）
-img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
-d = ImageDraw.Draw(img)
-cx, cy = 32, 32
-d.polygon([(cx,4),(60,cy),(cx,60),(4,cy)], fill=(255,215,0,255))
-d.polygon([(cx,14),(50,cy),(cx,50),(14,cy)], fill=(255,240,100,255))
-img.save(f'{out_dir}/tile_goal.png')
-```
-
-## Phase 7: GitHub Projects で進捗管理
+## Phase 8: GitHub Projects で進捗管理
 
 GitHub Projectsのテーブルビューを設定し、スプレッドシート感覚で100本のゲームを管理できるようにしました。
 
@@ -387,127 +425,49 @@ done
 `gh project` コマンドには `read:project` と `project` スコープが必要です。`gh auth refresh -s read:project,project -h github.com` で追加できます。
 :::
 
-## Phase 8: スケジュール自動化 — 寝ている間にゲームを量産する
-
-手動で「ゲームXXXを作って」と依頼するのは限界があります。Claude Code の **CronCreate** 機能を使って、5時間ごとに自動でゲームを実装し続ける仕組みを作りました。
-
-### なぜ5時間？
-
-Claude API にはレートリミット（トークン上限）があり、リセットまで **約5時間** かかります。1回の発火でレートリミットに達するまで連続実行し、次の5時間後にまた続きから再開する、という設計です。
-
-### CronCreate でスケジュール登録
-
-```
-CronCreate({
-  cron: "10 */5 * * *",   // 毎日 00:10, 05:10, 10:10, 15:10, 20:10
-  durable: true,            // .claude/scheduled_tasks.json に永続化
-  recurring: true,
-  prompt: "..."
-})
-```
-
-### 状態ファイルで進捗管理
-
-どのゲームまで実装済みかを `.claude/game_schedule_state.json` で管理します。
-
-```json
-{
-  "next_id": 4,
-  "total": 100,
-  "cron_job_id": "2841ba2f"
-}
-```
-
-### cronプロンプトの構造
-
-cronが発火したときに Claude が実行するプロンプトは3フェーズ構成です。
-
-```
-## フェーズ1: 状態読み込み
-- game_schedule_state.json を読む
-- next_id が 101 以上なら完了メッセージを出して終了
-
-## フェーズ2: レートリミットまで連続実行
-- /implement-game [ゲームID] をループ実行
-- 正常完了 → next_id を +1 して次のゲームへ
-- レートリミット/エラー → next_id を保持して停止（次回再試行）
-
-## フェーズ3: cronの自己更新
-- 古いジョブをCronDeleteして新しいCronCreateを実行
-- → 7日の自動失効を回避
-```
-
-フェーズ2の「レートリミットまで連続実行」がポイントで、1回の発火で可能な限り多くのゲームを実装します。
-
-### 承認プロンプトを無効化
-
-自動実行中に承認ダイアログが出ると止まってしまいます。`.claude/settings.local.json`（gitignore済み）で `bypassPermissions` を設定して解決しました。
-
-```json
-{
-  "permissions": {
-    "defaultMode": "bypassPermissions"
-  }
-}
-```
-
-:::message alert
-`bypassPermissions` はすべてのツール呼び出しを無承認で実行します。自動化の用途では有用ですが、信頼できる環境・リポジトリ限定で使用してください。
-:::
-
-### 動作フロー全体像
-
-```
-00:10 cron発火
-  → game 004 実装・PR作成・mainマージ
-  → game 005 実装・PR作成・mainマージ
-  → game 006 実装... （レートリミットまで継続）
-  → 停止、next_id を保存
-
-05:10 cron再発火（レートリミットリセット後）
-  → 続きの game XXX から再開
-  ...
-```
-
-:::message
-`durable: true` でジョブはディスクに永続化されますが、Claude Code が起動していないと発火しません。PCを使っている時間帯に自動実行される設計です。
-:::
-
 ## 非エンジニアのワークフロー（最終形）
+
+### 手動モード（1本ずつ）
 
 ```
 1. GitHub Projects でゲームを選ぶ（工数Sでフィルター）
       ↓
-2. Claude Code に「ゲームXXX を作って」と依頼
+2. Claude Code に「/implement-game 004」と依頼
       ↓
-3. 「アセットを生成して」で画像作成（オプション）
+3. 自動で C#生成 → アセット生成 → PR作成 → マージ
       ↓
-4. Unity Editor で Assets > Setup > XXX を実行
+4. Unity Editor で Assets > Setup > 004 WordCrystal を実行
       ↓
 5. Play ボタンで動作確認
       ↓
 6. 問題があれば自然言語でフィードバック
+```
+
+### 全自動モード（放置で量産）
+
+```
+1. Claude Code で /loop を起動
       ↓
-7. 完成！Issue をクローズして次のゲームへ
+2. PCを放置（5時間おきに自動実行）
+      ↓
+3. 状態ファイルに基づき次のゲームを自動実装
+      ↓
+4. PR作成 → マージ → Issue更新 → 次のゲームへ
+      ↓
+5. レートリミットで自然停止 → 次のループで再開
+      ↓
+6. あとは Unity Editor で SceneSetup を実行するだけ
 ```
 
 ## まとめ
 
-- **Claude Code + Unity** で、非エンジニアが「作って」と言うだけでゲームが完成する仕組みを1日で構築した
+- **Claude Code + Unity** で、非エンジニアが「作って」と言うだけでゲームが完成する仕組みを構築した
+- **`/implement-game` スキル** により、Issue取得からPRマージまでの全工程を1コマンドで自動化した
+- **`/loop` による連続実行** で、PC放置のまま数時間おきにゲームが量産される仕組みを実現した
 - **単一プロジェクト・シーン追加方式** により、100本のゲームを1つのUnityプロジェクトで管理できる
 - **SceneSetup Editorスクリプト** により、非エンジニアがインスペクタを触る場面をゼロにした
 - **GitHub Issues + Projects** で、スプレッドシート感覚の進捗管理を実現
-- **CronCreate によるスケジュール自動化** で、寝ている間もゲームが量産され続ける仕組みを実現
-- Unity 6 の新Input System対応や、スプライトのアセット保存など、実装で得たハマりポイントをナレッジとして蓄積
-
-## 現在の進捗
-
-| ゲームID | タイトル | 実装状態 |
-|---|---|---|
-| 001 | BlockFlow | ✅ 完了 |
-| 002 | MirrorMaze | ✅ 完了 |
-| 003 | GravitySwitch | ✅ 完了 |
-| 004〜100 | 97本 | 🔄 スケジュール自動実行中 |
+- ハマりポイントをスキル自体にルールとして組み込み、同じミスを繰り返さない仕組みにした
 
 ## この記事について
 
